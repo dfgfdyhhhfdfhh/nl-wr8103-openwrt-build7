@@ -1,0 +1,288 @@
+// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
+// mt7981b-newland_nl-wr8103-common.dtsi
+// Newland NL-WR8103 common device-tree definitions (OpenWrt main, Linux 6.6).
+// Reconstructed 2026-11-07 from:
+//  - hanwckf/immortalwrt-mt798x (21.02, kernel 5.4) mt7981-newland-nl-wr8103.dts
+//    (complete hardware description: LEDs, buttons, ethernet, switch, flash)
+//  - hanimeia/openwrt PR #19006 U-Boot patch (LED/button GPIOs, eth, flash layout)
+//  - mt7981b-xiaomi-mi-router-common.dtsi (6.6 DSA template from same source tree)
+// Notes / risks (unverifiable without the hardware):
+//  - LEDs: blue=GPIO9, yellow=GPIO10 (U-Boot patch + Xiaomi template agree;
+//    hanwckf 5.4 file says red=10/green=11/blue=12 instead - cosmetic if wrong).
+//  - Buttons: mesh=GPIO0, reset=GPIO1 (U-Boot patch + Xiaomi template agree;
+//    hanwckf 5.4 file has them swapped - functions may swap if wrong).
+//  - WAN: GMAC1 (gmii) to external PHY0 (ethernet-phy-id03a2.9461, reg 0).
+//    PHY calibration data omitted (phy_calibration label not defined in 6.6 tree);
+//    PHY works without it, possibly with slightly worse signal quality.
+//  - Switch: MT7531 internal, ports 0/1/2 = LAN, port 6 = CPU (GMAC0, sgmii 1G).
+//    BUILD7 PHY FIX (2026-11-10): build #6 used phy-mode "2500base-x" +
+//    fixed-link 2500 on the CPU port (gmac0 and switch port 6). The router
+//    booted but the LAN switch never came up (no Ethernet link on any LAN
+//    port; link was UP in U-Boot). Changed both ends of the CPU-port link to
+//    phy-mode "sgmii" with fixed-link speed 1000, full-duplex.
+//    NOTE: hanwckf's 5.4 DTS (the reference for this device) has gmac0 at
+//    "2500base-x"/2500 and only the switch port at "sgmii"/2500, so this
+//    matched-SGMII-1G setting is NOT a literal copy of hanwckf — it is the
+//    coherent 6.6 mt7530 setting (both ends of the link must agree; U-Boot
+//    brings the link up over SGMII). If LAN still has no link, the next
+//    thing to try is the hanwckf-literal variant (gmac0 2500base-x/2500,
+//    switch port sgmii/2500).
+//    The 2.5G LAN port is reached through the switch; only one of ports 0-2 is
+//    physically wired, the rest are harmless when unconnected.
+//  - No an8855 parts: the NL-WR8103 has no Airoha external switch (unlike AX3000T).
+
+/dts-v1/;
+#include <dt-bindings/input/input.h>
+#include <dt-bindings/gpio/gpio.h>
+
+#include "mt7981b.dtsi"
+
+/ {
+	aliases {
+		serial0 = &uart0;
+		led-boot = &led_status_yellow;
+		led-failsafe = &led_status_yellow;
+		led-running = &led_status_blue;
+		led-upgrade = &led_status_yellow;
+	};
+
+	chosen {
+		stdout-path = "serial0:115200n8";
+	};
+
+	memory {
+		reg = <0 0x40000000 0 0x10000000>;
+	};
+
+	gpio-keys {
+		compatible = "gpio-keys";
+
+		button-mesh {
+			label = "mesh";
+			gpios = <&pio 0 GPIO_ACTIVE_LOW>;
+			linux,code = <BTN_9>;
+			linux,input-type = <EV_SW>;
+		};
+
+		button-reset {
+			label = "reset";
+			gpios = <&pio 1 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_RESTART>;
+		};
+	};
+
+	leds: leds {
+		compatible = "gpio-leds";
+
+		led_status_blue: led-status-blue {
+			color = <LED_COLOR_ID_BLUE>;
+			function = LED_FUNCTION_STATUS;
+			gpios = <&pio 9 GPIO_ACTIVE_LOW>;
+		};
+
+		led_status_yellow: led-status-yellow {
+			color = <LED_COLOR_ID_YELLOW>;
+			function = LED_FUNCTION_STATUS;
+			gpios = <&pio 10 GPIO_ACTIVE_LOW>;
+		};
+	};
+};
+
+&eth {
+	status = "okay";
+
+	gmac0: mac@0 {
+		compatible = "mediatek,eth-mac";
+		reg = <0>;
+		phy-mode = "sgmii";
+
+		fixed-link {
+			speed = <1000>;
+			full-duplex;
+		};
+	};
+
+	gmac1: mac@1 {
+		compatible = "mediatek,eth-mac";
+		reg = <1>;
+		phy-mode = "gmii";
+		phy-handle = <&phy0>;
+	};
+};
+
+&mdio_bus {
+	switch: switch@1f {
+		compatible = "mediatek,mt7531";
+		reg = <31>;
+		reset-gpios = <&pio 39 GPIO_ACTIVE_HIGH>;
+		interrupt-controller;
+		#interrupt-cells = <1>;
+		interrupt-parent = <&pio>;
+		interrupts = <38 IRQ_TYPE_LEVEL_HIGH>;
+	};
+
+	phy0: ethernet-phy@0 {
+		compatible = "ethernet-phy-id03a2.9461";
+		reg = <0>;
+	};
+};
+
+&switch {
+	ports {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		port@0 {
+			reg = <0>;
+			label = "lan";
+		};
+
+		port@1 {
+			reg = <1>;
+			label = "lan";
+		};
+
+		port@2 {
+			reg = <2>;
+			label = "lan";
+		};
+
+		port@6 {
+			reg = <6>;
+			ethernet = <&gmac0>;
+			phy-mode = "sgmii";
+
+			fixed-link {
+				speed = <1000>;
+				full-duplex;
+			};
+		};
+	};
+};
+
+&spi0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&spi0_flash_pins>;
+	status = "okay";
+
+	spi_nand: flash@0 {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		compatible = "spi-nand";
+		reg = <0>;
+
+		spi-cal-enable;
+		spi-cal-mode = "read-data";
+		spi-cal-datalen = <7>;
+		spi-cal-data = /bits/ 8 <0x53 0x50 0x49 0x4e 0x41 0x4e 0x44>;
+		spi-cal-addrlen = <5>;
+		spi-cal-addr = /bits/ 32 <0x0 0x0 0x0 0x0 0x0>;
+
+		spi-max-frequency = <52000000>;
+		spi-tx-bus-width = <4>;
+		spi-rx-bus-width = <4>;
+
+		partitions: partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			partition@0 {
+				label = "BL2";
+				reg = <0x00 0x100000>;
+				read-only;
+			};
+
+			partition@100000 {
+				label = "Nvram";
+				reg = <0x100000 0x40000>;
+			};
+
+			partition@140000 {
+				label = "Bdata";
+				reg = <0x140000 0x40000>;
+			};
+
+			factory: partition@180000 {
+				label = "Factory";
+				reg = <0x180000 0x200000>;
+				read-only;
+
+				nvmem-layout {
+					compatible = "fixed-layout";
+					#address-cells = <1>;
+					#size-cells = <1>;
+
+					eeprom_factory_0: eeprom@0 {
+						reg = <0x0 0x1000>;
+					};
+
+					macaddr_factory_4: macaddr@4 {
+						compatible = "mac-base";
+						reg = <0x4 0x6>;
+						#nvmem-cell-cells = <1>;
+					};
+				};
+			};
+
+			partition@380000 {
+				label = "FIP";
+				reg = <0x380000 0x200000>;
+				read-only;
+			};
+
+			partition@580000 {
+				label = "crash";
+				reg = <0x580000 0x40000>;
+				read-only;
+			};
+
+			partition@5c0000 {
+				label = "crash_log";
+				reg = <0x5c0000 0x40000>;
+				read-only;
+			};
+
+			partition@7600000 {
+				label = "KF";
+				reg = <0x7600000 0x40000>;
+				read-only;
+			};
+		};
+	};
+};
+
+&pio {
+	spi0_flash_pins: spi0-pins {
+		mux {
+			function = "spi";
+			groups = "spi0", "spi0_wp_hold";
+		};
+
+		conf-pu {
+			pins = "SPI0_CS", "SPI0_HOLD", "SPI0_WP";
+			drive-strength = <MTK_DRIVE_8mA>;
+			bias-pull-up = <MTK_PUPD_SET_R1R0_11>;
+		};
+
+		conf-pd {
+			pins = "SPI0_CLK", "SPI0_MOSI", "SPI0_MISO";
+			drive-strength = <MTK_DRIVE_8mA>;
+			bias-pull-down = <MTK_PUPD_SET_R1R0_11>;
+		};
+	};
+};
+
+&wifi {
+	status = "okay";
+	nvmem-cells = <&eeprom_factory_0>;
+	nvmem-cell-names = "eeprom";
+};
+
+&uart0 {
+	status = "okay";
+};
+
+&watchdog {
+	status = "okay";
+};
